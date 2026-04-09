@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>One-Tap 2D - Platforms Update</title>
+    <title>One-Tap 2D - AI Combat Update</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         
@@ -26,32 +26,29 @@
         /* --- GAME & HUD STYLES --- */
         #game-container { display: none; position: relative; width: 100vw; height: 100vh; }
         canvas { display: block; }
-        #hud { position: absolute; bottom: 20px; left: 20px; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #hud { position: absolute; bottom: 20px; left: 20px; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; z-index: 2; }
+        #damage-overlay { display: none; position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255, 0, 0, 0.3); z-index: 1; pointer-events: none; }
         #killboard { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.85); padding: 30px; border-radius: 10px; border: 2px solid #e94560; z-index: 5; text-align: center; width: 450px;}
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { padding: 12px; border-bottom: 1px solid #444; }
-        .instructions { position: absolute; top: 10px; right: 10px; text-align: right; font-size: 14px; opacity: 0.8; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; }
+        .instructions { position: absolute; top: 10px; right: 10px; text-align: right; font-size: 14px; opacity: 0.8; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; z-index: 2;}
         
-        /* Generated Code Display */
         #code-display-box { display: none; margin-top: 20px; padding: 15px; background: #111; border: 2px dashed #00ffcc; border-radius: 5px; }
     </style>
 </head>
 <body>
 
     <div id="lobby">
-        <div class="lobby-box" id="main-lobby-ui">
+        <div class="lobby-box">
             <h1 style="color: #00ffcc; margin-bottom: 5px; font-size: 36px; text-shadow: 0 0 10px #00ffcc;">ONE-TAP</h1>
-            <p style="margin-top: 0; color: #aaa; font-style: italic;">Sniper & Knife Only</p>
+            <p style="margin-top: 0; color: #aaa; font-style: italic;">AI Combat Update</p>
             
             <input type="text" id="playerName" placeholder="Enter Your Gamertag" value="">
-            
             <div class="lobby-divider">--- JOIN EXISTING MATCH ---</div>
-            
-            <input type="text" id="joinCode" placeholder="Enter Room Code (e.g., ONG123)">
+            <input type="text" id="joinCode" placeholder="Enter Room Code">
             <button onclick="joinGame()">JOIN MATCH</button>
 
             <div class="lobby-divider">--- OR ---</div>
-
             <button class="btn-create" onclick="triggerCreateMatch()">CREATE NEW MATCH</button>
 
             <div id="code-display-box">
@@ -64,17 +61,17 @@
 
     <div id="loading-screen">
         <div class="spinner"></div>
-        <h2 id="loading-text" style="color: #00ffcc; letter-spacing: 2px;">Connecting to Server...</h2>
+        <h2 id="loading-text" style="color: #00ffcc; letter-spacing: 2px;">Connecting...</h2>
     </div>
 
     <div id="game-container">
+        <div id="damage-overlay"></div>
         <canvas id="gameCanvas"></canvas>
-        <div id="hud">Weapon: <span id="weaponDisplay" style="color: #0f0;">Sniper</span> | Kills: <span id="killCount">0</span></div>
+        <div id="hud">Weapon: <span id="weaponDisplay" style="color: #0f0;">Sniper</span> | Kills: <span id="killCount">0</span> | Deaths: <span id="deathCount" style="color: #f00;">0</span></div>
         <div class="instructions">
             <b>Scroll</b>: Change Weapon | <b>Click</b>: Attack<br>
             <b>A / D</b>: Move Left/Right<br>
             <b>Q</b>: Slide | <b>E</b>: Crouch | <b>Space</b>: Jump<br>
-            <b>Q + Space</b>: Slide-Cancel Jump<br>
             <b>Tab</b>: Killboard
         </div>
         
@@ -84,95 +81,30 @@
             <table>
                 <tr><th>Player Name</th><th>Status</th><th>Kills</th></tr>
                 <tr><td id="boardName" style="color:#00ffcc; font-weight:bold;">Guest</td><td style="color:#0f0;">Alive</td><td id="boardKills" style="color:#0f0;">0</td></tr>
-                <tr><td>Dummy_Bot_Alpha</td><td style="color:#aaa;">Bot</td><td>0</td></tr>
-                <tr><td>Dummy_Bot_Bravo</td><td style="color:#aaa;">Bot</td><td>0</td></tr>
-                <tr><td>Dummy_Bot_Charlie</td><td style="color:#aaa;">Bot</td><td>0</td></tr>
+                <tr><td>Hunter_Bot_1</td><td style="color:#ff2a4b;">Hostile</td><td>0</td></tr>
+                <tr><td>Hunter_Bot_2</td><td style="color:#ff2a4b;">Hostile</td><td>0</td></tr>
+                <tr><td>Hunter_Bot_3</td><td style="color:#ff2a4b;">Hostile</td><td>0</td></tr>
             </table>
-            <p style="color: #777; font-size: 12px; margin-top: 20px;">*Hold Tab to keep this open*</p>
         </div>
     </div>
 
     <script>
         /* =========================================================
-           PART 1: THE LOBBY & ROOM CODE GENERATION SYSTEM
+           LOBBY LOGIC (Collapsed for brevity, same functionality)
            ========================================================= */
-
-        let isPlaying = false;
-        let pName = "";
-        let roomCode = "";
-
-        function generateRoomCode() {
-            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-            let result = '';
-            for (let i = 0; i < 6; i++) {
-                result += characters.charAt(Math.floor(Math.random() * characters.length));
-            }
-            return result;
-        }
-
-        function triggerCreateMatch() {
-            const newCode = generateRoomCode();
-            document.getElementById('generatedCodeText').innerText = newCode;
-            document.getElementById('code-display-box').style.display = 'block';
-            roomCode = newCode;
-        }
-
-        function copyCodeAndStart() {
-            const codeToCopy = document.getElementById('generatedCodeText').innerText;
-            navigator.clipboard.writeText(codeToCopy).then(() => {
-                initiateServerConnection(true);
-            }).catch(err => {
-                initiateServerConnection(true);
-            });
-        }
-
-        function joinGame() {
-            const enteredCode = document.getElementById("joinCode").value.toUpperCase();
-            if (enteredCode.length < 3) {
-                alert("Please enter a valid room code!");
-                return;
-            }
-            roomCode = enteredCode;
-            initiateServerConnection(false);
-        }
-
-        function initiateServerConnection(isHost) {
-            pName = document.getElementById("playerName").value;
-            if (pName.trim() === "") {
-                pName = isHost ? "Host_Player" : "Guest_" + Math.floor(Math.random() * 999);
-            }
-
-            document.getElementById("lobby").style.display = "none";
-            const loadingScreen = document.getElementById("loading-screen");
-            const loadingText = document.getElementById("loading-text");
-            loadingScreen.style.display = "flex";
-
-            setTimeout(() => { loadingText.innerText = "Locating Matchmaker..."; }, 500);
-            setTimeout(() => { loadingText.innerText = `Connecting to Room [${roomCode}]...`; }, 1200);
-            setTimeout(() => { loadingText.innerText = "Syncing Player Physics..."; }, 2000);
-            
-            setTimeout(() => {
-                loadingScreen.style.display = "none";
-                launchGameEngine();
-            }, 2800);
-        }
-
-        function launchGameEngine() {
-            document.getElementById("game-container").style.display = "block";
-            document.getElementById("boardName").innerText = pName;
-            document.getElementById("roomDisplay").innerText = roomCode;
-            isPlaying = true;
-            generatePlatforms(); // Generate platforms based on screen size
-            gameLoop();
-        }
+        let isPlaying = false; let pName = ""; let roomCode = "";
+        function generateRoomCode() { const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let r = ''; for(let i=0;i<6;i++) r+=c.charAt(Math.floor(Math.random()*c.length)); return r; }
+        function triggerCreateMatch() { const nc = generateRoomCode(); document.getElementById('generatedCodeText').innerText = nc; document.getElementById('code-display-box').style.display = 'block'; roomCode = nc; }
+        function copyCodeAndStart() { navigator.clipboard.writeText(document.getElementById('generatedCodeText').innerText).then(()=>initiateServerConnection(true)).catch(()=>initiateServerConnection(true)); }
+        function joinGame() { const ec = document.getElementById("joinCode").value.toUpperCase(); if(ec.length < 3) return alert("Invalid code!"); roomCode = ec; initiateServerConnection(false); }
+        function initiateServerConnection(isHost) { pName = document.getElementById("playerName").value || (isHost ? "Host_Player" : "Guest_" + Math.floor(Math.random()*999)); document.getElementById("lobby").style.display = "none"; document.getElementById("loading-screen").style.display = "flex"; setTimeout(()=>{ document.getElementById("loading-screen").style.display = "none"; launchGameEngine(); }, 1500); }
+        function launchGameEngine() { document.getElementById("game-container").style.display = "block"; document.getElementById("boardName").innerText = pName; document.getElementById("roomDisplay").innerText = roomCode; isPlaying = true; generateMap(); gameLoop(); }
 
         /* =========================================================
-           PART 2: CORE GAME ENGINE & NEW PLATFORM PHYSICS
+           CORE GAME ENGINE, MAP GEN, AND AI COMBAT
            ========================================================= */
-
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
-        
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
         
@@ -185,7 +117,7 @@
             if (e.code === 'Space') keys.space = true;
             if (e.code === 'KeyA') keys.a = true;
             if (e.code === 'KeyD') keys.d = true;
-            if (e.code === 'Tab') { e.preventDefault(); showKillboard = true; document.getElementById("killboard").style.display = "block"; }
+            if (e.code === 'Tab') { e.preventDefault(); document.getElementById("killboard").style.display = "block"; }
         });
 
         document.addEventListener('keyup', (e) => {
@@ -194,27 +126,27 @@
             if (e.code === 'Space') keys.space = false;
             if (e.code === 'KeyA') keys.a = false;
             if (e.code === 'KeyD') keys.d = false;
-            if (e.code === 'Tab') { showKillboard = false; document.getElementById("killboard").style.display = "none"; }
+            if (e.code === 'Tab') { document.getElementById("killboard").style.display = "none"; }
         });
 
         document.addEventListener('wheel', (e) => {
             if (!isPlaying) return;
-            if (e.deltaY > 0 || e.deltaY < 0) {
+            if (e.deltaY !== 0) {
                 player.weapon = player.weapon === "Sniper" ? "Knife" : "Sniper";
                 document.getElementById("weaponDisplay").innerText = player.weapon;
                 document.getElementById("weaponDisplay").style.color = player.weapon === "Sniper" ? "#0f0" : "#f00";
             }
         });
 
-        let bullets = [];
+        let playerBullets = [];
+        let enemyBullets = [];
+
         canvas.addEventListener('mousedown', (e) => {
             if (!isPlaying) return;
-            
-            const mouseX = e.clientX;
-            const mouseY = e.clientY;
+            const mouseX = e.clientX; const mouseY = e.clientY;
             
             if (player.weapon === "Sniper") {
-                bullets.push({x1: player.x, y1: player.y - player.height/2, x2: mouseX, y2: mouseY, timer: 10});
+                playerBullets.push({x1: player.x, y1: player.y - player.height/2, x2: mouseX, y2: mouseY, timer: 10});
                 enemies.forEach(enemy => {
                     if (mouseX > enemy.x - enemy.width/2 && mouseX < enemy.x + enemy.width/2 &&
                         mouseY > enemy.y - enemy.height && mouseY < enemy.y) {
@@ -226,62 +158,141 @@
             } else if (player.weapon === "Knife") {
                 enemies.forEach(enemy => {
                     let dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
-                    if (dist < 100) {
-                        enemy.die();
-                        player.kills++;
-                        updateHUD();
-                    }
+                    if (dist < 100) { enemy.die(); player.kills++; updateHUD(); }
                 });
             }
         });
 
-        // Player & Environment Data
         const player = {
-            x: canvas.width / 2,
-            y: canvas.height - 50,
-            width: 30,
-            height: 70,
-            vx: 0,
-            vy: 0,
-            weapon: "Sniper",
-            kills: 0,
-            isGrounded: false,
-            state: "normal"
+            x: canvas.width / 2, y: canvas.height - 50,
+            width: 30, height: 70, vx: 0, vy: 0,
+            weapon: "Sniper", kills: 0, deaths: 0,
+            isGrounded: false, state: "normal"
         };
 
-        let platforms = [];
+        function killPlayer() {
+            player.deaths++;
+            updateHUD();
+            // Damage Flash Effect
+            const overlay = document.getElementById("damage-overlay");
+            overlay.style.display = "block";
+            setTimeout(() => { overlay.style.display = "none"; }, 150);
+            
+            // Random Respawn
+            player.x = Math.random() * (canvas.width - 100) + 50;
+            player.y = 100; // Drop from sky
+            player.vx = 0; player.vy = 0;
+        }
+
+        let mapObjects = [];
         
-        function generatePlatforms() {
-            // Creates platforms dynamically based on screen size
-            platforms = [
-                { x: canvas.width * 0.1, y: canvas.height - 180, w: 250, h: 15 }, // Left low
-                { x: canvas.width * 0.65, y: canvas.height - 220, w: 250, h: 15 }, // Right mid
-                { x: canvas.width * 0.35, y: canvas.height - 350, w: 250, h: 15 }, // Center high
-                { x: canvas.width * 0.8, y: canvas.height - 450, w: 150, h: 15 }   // Top sniper perch
+        function generateMap() {
+            // "type: plat" means you can walk through the sides and hit your head, but stand on top.
+            // "type: box" means it's a solid block (stops X movement).
+            mapObjects = [
+                // Platforms
+                { x: canvas.width * 0.1, y: canvas.height - 180, w: 200, h: 15, type: "plat" },
+                { x: canvas.width * 0.7, y: canvas.height - 250, w: 200, h: 15, type: "plat" },
+                { x: canvas.width * 0.4, y: canvas.height - 350, w: 250, h: 15, type: "plat" },
+                // Crates / Boxes
+                { x: canvas.width * 0.3, y: canvas.height - 130, w: 80, h: 80, type: "box" },
+                { x: canvas.width * 0.55, y: canvas.height - 100, w: 100, h: 50, type: "box" },
+                { x: canvas.width * 0.85, y: canvas.height - 170, w: 60, h: 120, type: "box" }
             ];
         }
 
         class Enemy {
             constructor() { this.respawn(); }
             respawn() {
-                this.width = 30;
-                this.height = 70;
+                this.width = 30; this.height = 70;
                 this.x = Math.random() * (canvas.width - 100) + 50;
-                
-                // Spawn either on the floor or on a platform
-                if (Math.random() > 0.5 && platforms.length > 0) {
-                    let plat = platforms[Math.floor(Math.random() * platforms.length)];
-                    this.x = plat.x + (Math.random() * plat.w);
-                    this.y = plat.y;
-                } else {
-                    this.y = canvas.height - 50;
-                }
-                this.color = "#e94560";
+                this.y = 100; // Drop in
+                this.vx = (Math.random() > 0.5 ? 3 : -3);
+                this.vy = 0;
+                this.color = "#ff2a4b";
+                this.isGrounded = false;
+                this.shootCooldown = Math.random() * 60 + 40; // Frames before shooting
             }
             die() { this.respawn(); }
+            
+            update() {
+                // Gravity
+                this.vy += GRAVITY;
+
+                // X Movement & Box Collision
+                this.x += this.vx;
+                if (this.x < this.width/2 || this.x > canvas.width - this.width/2) this.vx *= -1; // Screen edge bounce
+
+                for (let obj of mapObjects) {
+                    if (obj.type === "box") {
+                        if (this.x + this.width/2 > obj.x && this.x - this.width/2 < obj.x + obj.w &&
+                            this.y > obj.y && this.y - this.height < obj.y + obj.h) {
+                            this.vx *= -1; // Reverse direction if bot hits a box
+                            break;
+                        }
+                    }
+                }
+
+                // Y Movement & Platform/Floor Collision
+                this.y += this.vy;
+                this.isGrounded = false;
+
+                for (let obj of mapObjects) {
+                    if (this.vy > 0 && this.y - this.vy <= obj.y && this.y >= obj.y && 
+                        this.x > obj.x - this.width/2 && this.x < obj.x + obj.w + this.width/2) {
+                        this.y = obj.y;
+                        this.vy = 0;
+                        this.isGrounded = true;
+                    }
+                }
+
+                if (this.y >= canvas.height - 50) {
+                    this.y = canvas.height - 50;
+                    this.vy = 0;
+                    this.isGrounded = true;
+                }
+
+                // Random Bot Jumping
+                if (this.isGrounded && Math.random() < 0.02) {
+                    this.vy = JUMP_FORCE * 0.9;
+                }
+
+                // AI Combat Logic: Aim and Shoot at Player
+                this.shootCooldown--;
+                if (this.shootCooldown <= 0) {
+                    let dx = player.x - this.x;
+                    let dy = (player.y - player.height/2) - (this.y - this.height/2);
+                    let dist = Math.hypot(dx, dy);
+
+                    if (dist < 700) { // Aggro distance
+                        // Calculate inaccuracy so they aren't perfect aimbots
+                        let aimInaccuracyX = (Math.random() - 0.5) * 120;
+                        let aimInaccuracyY = (Math.random() - 0.5) * 120;
+                        let targetX = player.x + aimInaccuracyX;
+                        let targetY = (player.y - player.height/2) + aimInaccuracyY;
+
+                        // Draw Red Laser
+                        enemyBullets.push({
+                            x1: this.x, y1: this.y - this.height/2,
+                            x2: targetX, y2: targetY,
+                            timer: 15
+                        });
+
+                        // Check if bot bullet hit the player's hitbox
+                        if (targetX > player.x - player.width/2 && targetX < player.x + player.width/2 &&
+                            targetY > player.y - player.height && targetY < player.y) {
+                            killPlayer();
+                        }
+                    }
+                    this.shootCooldown = Math.random() * 60 + 60; // Reset timer (approx 1-2 seconds)
+                }
+            }
             draw() {
                 ctx.fillStyle = this.color;
                 ctx.fillRect(this.x - this.width/2, this.y - this.height, this.width, this.height);
+                // Bot eye indicator (shows direction)
+                ctx.fillStyle = "#fff";
+                ctx.fillRect(this.x + (this.vx > 0 ? 5 : -15), this.y - this.height + 10, 10, 10);
             }
         }
         
@@ -290,144 +301,161 @@
         function updateHUD() {
             document.getElementById("killCount").innerText = player.kills;
             document.getElementById("boardKills").innerText = player.kills;
+            document.getElementById("deathCount").innerText = player.deaths;
         }
 
-        /* PHYSICS TWEAKS
-           - Lowered MOVE_ACCEL so you don't instantly fly.
-           - Added MAX_SPEED so you don't infinitely gain speed while walking.
-        */
+        // PHYSICS CONSTANTS
         const GRAVITY = 0.7;
         const FRICTION = 0.85;
         const MOVE_ACCEL = 1.2; 
         const MAX_SPEED = 6;    
-        const JUMP_FORCE = -13;
+        const JUMP_FORCE = -14.5; // BUFFED JUMP HEIGHT
         const SLIDE_SPEED = 12;
 
         function update() {
-            if (keys.e) {
-                player.state = "crouching";
-                player.height = 35;
-            } else if (keys.q && player.isGrounded) {
-                player.state = "sliding";
-                player.height = 35;
-            } else {
-                player.state = "normal";
-                player.height = 70;
-            }
+            // Stance State
+            if (keys.e) { player.state = "crouching"; player.height = 35; } 
+            else if (keys.q && player.isGrounded) { player.state = "sliding"; player.height = 35; } 
+            else { player.state = "normal"; player.height = 70; }
 
-            // Normal Movement with Speed Caps
+            // Movement X
             if (player.state === "normal") {
                 if (keys.a) player.vx -= MOVE_ACCEL;
                 if (keys.d) player.vx += MOVE_ACCEL;
-                
                 if (player.vx > MAX_SPEED) player.vx = MAX_SPEED;
                 if (player.vx < -MAX_SPEED) player.vx = -MAX_SPEED;
             }
-
-            // Sliding forces speed
             if (player.state === "sliding") {
                 if (player.vx > 0) player.vx = SLIDE_SPEED;
                 if (player.vx < 0) player.vx = -SLIDE_SPEED;
             }
 
+            // Apply X Velocity
+            player.x += player.vx;
+
+            // X Collision against solid BOXES
+            for (let obj of mapObjects) {
+                if (obj.type === "box") {
+                    if (player.x + player.width/2 > obj.x && player.x - player.width/2 < obj.x + obj.w &&
+                        player.y > obj.y && player.y - player.height < obj.y + obj.h) {
+                        
+                        // Push player out of the box
+                        if (player.vx > 0) player.x = obj.x - player.width/2;
+                        else if (player.vx < 0) player.x = obj.x + obj.w + player.width/2;
+                        player.vx = 0;
+                    }
+                }
+            }
+
+            // Screen Bounds X
+            if (player.x < player.width / 2) { player.x = player.width / 2; player.vx = 0; }
+            if (player.x > canvas.width - player.width / 2) { player.x = canvas.width - player.width / 2; player.vx = 0; }
+
+            // Jump Action
             if (keys.space && player.isGrounded) {
                 player.vy = JUMP_FORCE;
                 player.isGrounded = false;
-                if (player.state === "sliding") {
-                    player.vx *= 1.4; // Slightly nerfed slide-jump boost
-                }
+                if (player.state === "sliding") player.vx *= 1.4; 
             }
 
-            // Apply Velocity
-            player.x += player.vx;
+            // Apply Y Velocity
             player.y += player.vy;
             player.vy += GRAVITY;
             
-            // Friction
-            if (player.isGrounded) {
-                player.vx *= (player.state === "sliding") ? 0.96 : FRICTION; 
-            } else {
-                player.vx *= 0.98; // Air friction
-            }
+            // Apply Friction
+            if (player.isGrounded) player.vx *= (player.state === "sliding") ? 0.96 : FRICTION; 
+            else player.vx *= 0.98;
 
-            /* --- COLLISION DETECTION --- */
+            // Y Collision (Floors, Platforms, Tops of Boxes)
             player.isGrounded = false;
-
-            // 1. Platform Collision
-            platforms.forEach(plat => {
-                // Check if player was above platform last frame, and is falling
-                if (player.vy > 0 && 
-                    player.y - player.vy <= plat.y && 
-                    player.y >= plat.y && 
-                    player.x > plat.x - player.width/2 && 
-                    player.x < plat.x + plat.w + player.width/2) {
-                    
-                    player.y = plat.y;
+            for (let obj of mapObjects) {
+                // Landing on top of anything
+                if (player.vy > 0 && player.y - player.vy <= obj.y && player.y >= obj.y && 
+                    player.x > obj.x - player.width/2 && player.x < obj.x + obj.w + player.width/2) {
+                    player.y = obj.y;
                     player.vy = 0;
                     player.isGrounded = true;
                 }
-            });
+                // Hitting head on bottom of a solid BOX
+                else if (obj.type === "box" && player.vy < 0 &&
+                         player.y - player.height >= obj.y + obj.h + player.vy &&
+                         player.y - player.height <= obj.y + obj.h &&
+                         player.x > obj.x - player.width/2 && player.x < obj.x + obj.w + player.width/2) {
+                    player.y = obj.y + obj.h + player.height;
+                    player.vy = 0;
+                }
+            }
 
-            // 2. Floor Collision
+            // Main Floor
             if (player.y >= canvas.height - 50) {
                 player.y = canvas.height - 50;
                 player.vy = 0;
                 player.isGrounded = true;
             }
-            
-            // 3. Wall Collision (NO MORE TELEPORTING)
-            if (player.x < player.width / 2) {
-                player.x = player.width / 2;
-                player.vx = 0;
-            }
-            if (player.x > canvas.width - player.width / 2) {
-                player.x = canvas.width - player.width / 2;
-                player.vx = 0;
-            }
+
+            // Update Bots
+            enemies.forEach(enemy => enemy.update());
         }
 
         function draw() {
             ctx.fillStyle = "#1a1a2e";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Draw Platforms
-            ctx.fillStyle = "#3a4a6e";
-            platforms.forEach(plat => {
-                ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
-                // Top highlight for 3D effect
-                ctx.fillStyle = "#00ffcc";
-                ctx.fillRect(plat.x, plat.y, plat.w, 2);
-                ctx.fillStyle = "#3a4a6e"; // Reset for next plat
+            // Draw Map Objects
+            mapObjects.forEach(obj => {
+                if (obj.type === "plat") {
+                    ctx.fillStyle = "#3a4a6e";
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                    ctx.fillStyle = "#00ffcc"; // Neon trim
+                    ctx.fillRect(obj.x, obj.y, obj.w, 2);
+                } else if (obj.type === "box") {
+                    ctx.fillStyle = "#222"; // Dark crate
+                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                    ctx.strokeStyle = "#e94560"; // Red hazard trim
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(obj.x, obj.y, obj.w, obj.h);
+                    
+                    // Crate X design
+                    ctx.beginPath();
+                    ctx.moveTo(obj.x, obj.y);
+                    ctx.lineTo(obj.x + obj.w, obj.y + obj.h);
+                    ctx.moveTo(obj.x + obj.w, obj.y);
+                    ctx.lineTo(obj.x, obj.y + obj.h);
+                    ctx.strokeStyle = "#333";
+                    ctx.stroke();
+                }
             });
 
             // Draw Floor
             ctx.fillStyle = "#16213e";
             ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
 
-            // Draw Enemies
+            // Draw Entities
             enemies.forEach(enemy => enemy.draw());
-
-            // Draw Player
             ctx.fillStyle = "#00ffcc";
             ctx.fillRect(player.x - player.width/2, player.y - player.height, player.width, player.height);
 
-            // Draw Bullets/Trails
-            for (let i = bullets.length - 1; i >= 0; i--) {
-                let b = bullets[i];
-                ctx.beginPath();
-                ctx.moveTo(b.x1, b.y1);
-                ctx.lineTo(b.x2, b.y2);
-                ctx.strokeStyle = `rgba(255, 255, 255, ${b.timer/10})`;
-                ctx.lineWidth = 2;
-                ctx.stroke();
-                b.timer--;
-                if (b.timer <= 0) bullets.splice(i, 1);
+            // Draw Player Bullets (White/Blue)
+            for (let i = playerBullets.length - 1; i >= 0; i--) {
+                let b = playerBullets[i];
+                ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2);
+                ctx.strokeStyle = `rgba(0, 255, 255, ${b.timer/10})`; ctx.lineWidth = 2; ctx.stroke();
+                b.timer--; if (b.timer <= 0) playerBullets.splice(i, 1);
+            }
+
+            // Draw Enemy Bullets (Red)
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                let b = enemyBullets[i];
+                ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2);
+                ctx.strokeStyle = `rgba(255, 0, 0, ${b.timer/15})`; ctx.lineWidth = 3; ctx.stroke();
+                b.timer--; if (b.timer <= 0) enemyBullets.splice(i, 1);
             }
             
+            // Knife Indicator
             if (player.weapon === "Knife") {
                 ctx.beginPath();
                 ctx.arc(player.x, player.y - player.height/2, 100, 0, Math.PI * 2);
-                ctx.strokeStyle = "rgba(255, 0, 0, 0.2)";
+                ctx.strokeStyle = "rgba(0, 255, 204, 0.2)";
                 ctx.stroke();
             }
         }
@@ -442,7 +470,7 @@
         window.addEventListener('resize', () => {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            generatePlatforms(); // Re-adjust platforms if window changes
+            generateMap(); 
         });
     </script>
 </body>
