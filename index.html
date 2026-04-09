@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>One-Tap 2D - Line of Sight Update</title>
+    <title>One-Tap 2D - Timer & Pause Update</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         
@@ -34,6 +34,11 @@
         .instructions { position: absolute; top: 10px; right: 10px; text-align: right; font-size: 14px; opacity: 0.8; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; z-index: 2;}
         
         #code-display-box { display: none; margin-top: 20px; padding: 15px; background: #111; border: 2px dashed #00ffcc; border-radius: 5px; }
+
+        /* --- OVERLAY MENUS (Pause & Match Over) --- */
+        .overlay-menu { display: none; position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.8); z-index: 30; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+        .menu-box { background: #16213e; padding: 40px; border-radius: 10px; border: 2px solid #00ffcc; width: 350px; }
+        .game-over-box { border-color: #e94560; }
     </style>
 </head>
 <body>
@@ -41,7 +46,7 @@
     <div id="lobby">
         <div class="lobby-box">
             <h1 style="color: #00ffcc; margin-bottom: 5px; font-size: 36px; text-shadow: 0 0 10px #00ffcc;">ONE-TAP</h1>
-            <p style="margin-top: 0; color: #aaa; font-style: italic;">Line of Sight Update</p>
+            <p style="margin-top: 0; color: #aaa; font-style: italic;">Timer & Pause Update</p>
             
             <input type="text" id="playerName" placeholder="Enter Your Gamertag" value="">
             <div class="lobby-divider">--- JOIN EXISTING MATCH ---</div>
@@ -64,15 +69,37 @@
         <h2 id="loading-text" style="color: #00ffcc; letter-spacing: 2px;">Connecting...</h2>
     </div>
 
+    <div id="pause-menu" class="overlay-menu">
+        <div class="menu-box">
+            <h1 style="color: #00ffcc; letter-spacing: 3px;">GAME PAUSED</h1>
+            <button onclick="togglePause()" style="margin-top: 20px;">RESUME</button>
+            <button onclick="location.reload()" style="background: #e94560; margin-top: 10px;">QUIT TO LOBBY</button>
+        </div>
+    </div>
+
+    <div id="match-over-screen" class="overlay-menu">
+        <div class="menu-box game-over-box">
+            <h1 style="color: #e94560; letter-spacing: 3px;">MATCH OVER</h1>
+            <h2 style="color: #fff;">Final Kills: <span id="finalKills" style="color: #0f0;">0</span></h2>
+            <h2 style="color: #fff;">Final Deaths: <span id="finalDeaths" style="color: #f00;">0</span></h2>
+            <button onclick="location.reload()" style="margin-top: 20px;">RETURN TO LOBBY</button>
+        </div>
+    </div>
+
     <div id="game-container">
         <div id="damage-overlay"></div>
         <canvas id="gameCanvas"></canvas>
-        <div id="hud">Weapon: <span id="weaponDisplay" style="color: #0f0;">Sniper</span> | Kills: <span id="killCount">0</span> | Deaths: <span id="deathCount" style="color: #f00;">0</span></div>
+        <div id="hud">
+            Time: <span id="timeDisplay" style="color: #ffaa00;">3:00</span> | 
+            Weapon: <span id="weaponDisplay" style="color: #0f0;">Sniper</span> | 
+            Kills: <span id="killCount">0</span> | 
+            Deaths: <span id="deathCount" style="color: #f00;">0</span>
+        </div>
         <div class="instructions">
             <b>Scroll</b>: Change Weapon | <b>Click</b>: Attack<br>
             <b>A / D</b>: Move Left/Right<br>
             <b>Q</b>: Slide | <b>E</b>: Crouch | <b>Space</b>: Jump<br>
-            <b>Tab</b>: Killboard
+            <b>P</b>: Pause Game | <b>Tab</b>: Killboard
         </div>
         
         <div id="killboard">
@@ -92,16 +119,35 @@
         /* =========================================================
            LOBBY LOGIC
            ========================================================= */
-        let isPlaying = false; let pName = ""; let roomCode = "";
+        let isPlaying = false; let isPaused = false; let matchOver = false;
+        let pName = ""; let roomCode = "";
+        
         function generateRoomCode() { const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let r = ''; for(let i=0;i<6;i++) r+=c.charAt(Math.floor(Math.random()*c.length)); return r; }
         function triggerCreateMatch() { const nc = generateRoomCode(); document.getElementById('generatedCodeText').innerText = nc; document.getElementById('code-display-box').style.display = 'block'; roomCode = nc; }
         function copyCodeAndStart() { navigator.clipboard.writeText(document.getElementById('generatedCodeText').innerText).then(()=>initiateServerConnection(true)).catch(()=>initiateServerConnection(true)); }
         function joinGame() { const ec = document.getElementById("joinCode").value.toUpperCase(); if(ec.length < 3) return alert("Invalid code!"); roomCode = ec; initiateServerConnection(false); }
-        function initiateServerConnection(isHost) { pName = document.getElementById("playerName").value || (isHost ? "Host_Player" : "Guest_" + Math.floor(Math.random()*999)); document.getElementById("lobby").style.display = "none"; document.getElementById("loading-screen").style.display = "flex"; setTimeout(()=>{ document.getElementById("loading-screen").style.display = "none"; launchGameEngine(); }, 1500); }
-        function launchGameEngine() { document.getElementById("game-container").style.display = "block"; document.getElementById("boardName").innerText = pName; document.getElementById("roomDisplay").innerText = roomCode; isPlaying = true; generateMap(); gameLoop(); }
+        
+        function initiateServerConnection(isHost) { 
+            pName = document.getElementById("playerName").value || (isHost ? "Host_Player" : "Guest_" + Math.floor(Math.random()*999)); 
+            document.getElementById("lobby").style.display = "none"; 
+            document.getElementById("loading-screen").style.display = "flex"; 
+            setTimeout(()=>{ 
+                document.getElementById("loading-screen").style.display = "none"; 
+                launchGameEngine(); 
+            }, 1500); 
+        }
+        
+        function launchGameEngine() { 
+            document.getElementById("game-container").style.display = "block"; 
+            document.getElementById("boardName").innerText = pName; 
+            document.getElementById("roomDisplay").innerText = roomCode; 
+            isPlaying = true; 
+            generateMap(); 
+            gameLoop(); 
+        }
 
         /* =========================================================
-           CORE GAME ENGINE & REAL RAY-MARCHING PHYSICS
+           CORE GAME ENGINE, TIMER & PAUSE LOGIC
            ========================================================= */
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
@@ -111,6 +157,16 @@
         const keys = { q: false, e: false, space: false, a: false, d: false };
         let showKillboard = false;
 
+        // Timer Logic Variables (3 minutes = 180 seconds)
+        let timeLeft = 180; 
+        let frameCount = 0;
+
+        function togglePause() {
+            if (!isPlaying || matchOver) return;
+            isPaused = !isPaused;
+            document.getElementById("pause-menu").style.display = isPaused ? "flex" : "none";
+        }
+
         document.addEventListener('keydown', (e) => {
             if (e.code === 'KeyQ') keys.q = true;
             if (e.code === 'KeyE') keys.e = true;
@@ -118,6 +174,7 @@
             if (e.code === 'KeyA') keys.a = true;
             if (e.code === 'KeyD') keys.d = true;
             if (e.code === 'Tab') { e.preventDefault(); document.getElementById("killboard").style.display = "block"; }
+            if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
         });
 
         document.addEventListener('keyup', (e) => {
@@ -130,7 +187,7 @@
         });
 
         document.addEventListener('wheel', (e) => {
-            if (!isPlaying) return;
+            if (!isPlaying || isPaused || matchOver) return;
             if (e.deltaY !== 0) {
                 player.weapon = player.weapon === "Sniper" ? "Knife" : "Sniper";
                 document.getElementById("weaponDisplay").innerText = player.weapon;
@@ -141,65 +198,40 @@
         let playerBullets = [];
         let enemyBullets = [];
 
-        // NEW SHOOTING SYSTEM - Line of Sight Ray-Marching
         canvas.addEventListener('mousedown', (e) => {
-            if (!isPlaying) return;
+            if (!isPlaying || isPaused || matchOver) return;
             
             if (player.weapon === "Sniper") {
-                let startX = player.x;
-                let startY = player.y - player.height / 2;
-                
-                // Calculate distance and steps to mouse
-                let dx = e.clientX - startX;
-                let dy = e.clientY - startY;
+                let startX = player.x; let startY = player.y - player.height / 2;
+                let dx = e.clientX - startX; let dy = e.clientY - startY;
                 let distance = Math.hypot(dx, dy);
-                
-                // Step bullet forward 5 pixels at a time
                 let steps = distance / 5; 
-                let stepX = dx / steps;
-                let stepY = dy / steps;
+                let stepX = dx / steps; let stepY = dy / steps;
 
-                let currentX = startX;
-                let currentY = startY;
-                let hitTarget = null;
-                let hitWall = false;
+                let currentX = startX; let currentY = startY;
+                let hitTarget = null; let hitWall = false;
 
-                // Travel along the line until we hit something or reach the mouse
                 for (let i = 0; i < steps; i++) {
-                    currentX += stepX;
-                    currentY += stepY;
-
-                    // 1. Check if bullet hit a Wall (Box)
+                    currentX += stepX; currentY += stepY;
                     for (let obj of mapObjects) {
-                        if (obj.type === "box") {
-                            if (currentX > obj.x && currentX < obj.x + obj.w &&
-                                currentY > obj.y && currentY < obj.y + obj.h) {
-                                hitWall = true;
-                                break;
-                            }
+                        if (obj.type === "box" && currentX > obj.x && currentX < obj.x + obj.w && currentY > obj.y && currentY < obj.y + obj.h) {
+                            hitWall = true; break;
                         }
                     }
-                    if (hitWall) break; // Stop bullet at wall
+                    if (hitWall) break;
 
-                    // 2. Check if bullet hit an Enemy
                     for (let enemy of enemies) {
-                        if (currentX > enemy.x - enemy.width/2 && currentX < enemy.x + enemy.width/2 &&
-                            currentY > enemy.y - enemy.height && currentY < enemy.y) {
-                            hitTarget = enemy;
-                            break;
+                        if (currentX > enemy.x - enemy.width/2 && currentX < enemy.x + enemy.width/2 && currentY > enemy.y - enemy.height && currentY < enemy.y) {
+                            hitTarget = enemy; break;
                         }
                     }
-                    if (hitTarget) break; // Stop bullet at enemy
+                    if (hitTarget) break;
                 }
 
-                // Draw the bullet trail stopping exactly where it hit
                 playerBullets.push({x1: startX, y1: startY, x2: currentX, y2: currentY, timer: 10});
 
-                // Apply Damage if an enemy was hit
                 if (hitTarget) {
-                    hitTarget.die();
-                    player.kills++;
-                    updateHUD();
+                    hitTarget.die(); player.kills++; updateHUD();
                 }
 
             } else if (player.weapon === "Knife") {
@@ -224,13 +256,11 @@
             overlay.style.display = "block";
             setTimeout(() => { overlay.style.display = "none"; }, 150);
             
-            player.x = Math.random() * (canvas.width - 100) + 50;
-            player.y = 100;
+            player.x = Math.random() * (canvas.width - 100) + 50; player.y = 100;
             player.vx = 0; player.vy = 0;
         }
 
         let mapObjects = [];
-        
         function generateMap() {
             mapObjects = [
                 { x: canvas.width * 0.1, y: canvas.height - 180, w: 200, h: 15, type: "plat" },
@@ -246,102 +276,64 @@
             constructor() { this.respawn(); }
             respawn() {
                 this.width = 30; this.height = 70;
-                this.x = Math.random() * (canvas.width - 100) + 50;
-                this.y = 100; 
-                this.vx = (Math.random() > 0.5 ? 3 : -3);
-                this.vy = 0;
-                this.color = "#ff2a4b";
-                this.isGrounded = false;
+                this.x = Math.random() * (canvas.width - 100) + 50; this.y = 100; 
+                this.vx = (Math.random() > 0.5 ? 3 : -3); this.vy = 0;
+                this.color = "#ff2a4b"; this.isGrounded = false;
                 this.shootCooldown = Math.random() * 60 + 40; 
             }
             die() { this.respawn(); }
             
             update() {
                 this.vy += GRAVITY;
-
-                // X Movement & Box Collision
                 this.x += this.vx;
                 if (this.x < this.width/2 || this.x > canvas.width - this.width/2) this.vx *= -1; 
 
                 for (let obj of mapObjects) {
-                    if (obj.type === "box") {
-                        if (this.x + this.width/2 > obj.x && this.x - this.width/2 < obj.x + obj.w &&
-                            this.y > obj.y && this.y - this.height < obj.y + obj.h) {
-                            this.vx *= -1; 
-                            break;
-                        }
+                    if (obj.type === "box" && this.x + this.width/2 > obj.x && this.x - this.width/2 < obj.x + obj.w && this.y > obj.y && this.y - this.height < obj.y + obj.h) {
+                        this.vx *= -1; break;
                     }
                 }
 
-                // Y Movement
-                this.y += this.vy;
-                this.isGrounded = false;
-
+                this.y += this.vy; this.isGrounded = false;
                 for (let obj of mapObjects) {
-                    if (this.vy > 0 && this.y - this.vy <= obj.y && this.y >= obj.y && 
-                        this.x > obj.x - this.width/2 && this.x < obj.x + obj.w + this.width/2) {
+                    if (this.vy > 0 && this.y - this.vy <= obj.y && this.y >= obj.y && this.x > obj.x - this.width/2 && this.x < obj.x + obj.w + this.width/2) {
                         this.y = obj.y; this.vy = 0; this.isGrounded = true;
                     }
                 }
 
-                if (this.y >= canvas.height - 50) {
-                    this.y = canvas.height - 50; this.vy = 0; this.isGrounded = true;
-                }
-
+                if (this.y >= canvas.height - 50) { this.y = canvas.height - 50; this.vy = 0; this.isGrounded = true; }
                 if (this.isGrounded && Math.random() < 0.02) this.vy = JUMP_FORCE * 0.9;
 
-                // BOT AI SHOOTING - Now with Line of Sight checks
                 this.shootCooldown--;
                 if (this.shootCooldown <= 0) {
-                    let dx = player.x - this.x;
-                    let dy = (player.y - player.height/2) - (this.y - this.height/2);
-                    let dist = Math.hypot(dx, dy);
-
+                    let dist = Math.hypot(player.x - this.x, (player.y - player.height/2) - (this.y - this.height/2));
                     if (dist < 800) { 
                         let targetX = player.x + (Math.random() - 0.5) * 80;
                         let targetY = (player.y - player.height/2) + (Math.random() - 0.5) * 80;
-
-                        // Ray-march to check if the bot can actually see the player
-                        let bDist = Math.hypot(targetX - this.x, targetY - (this.y - this.height/2));
-                        let bSteps = bDist / 5;
-                        let bStepX = (targetX - this.x) / bSteps;
-                        let bStepY = (targetY - (this.y - this.height/2)) / bSteps;
-                        let bCurX = this.x;
-                        let bCurY = this.y - this.height/2;
-                        let botHitWall = false;
+                        
+                        let bSteps = Math.hypot(targetX - this.x, targetY - (this.y - this.height/2)) / 5;
+                        let bStepX = (targetX - this.x) / bSteps; let bStepY = (targetY - (this.y - this.height/2)) / bSteps;
+                        let bCurX = this.x; let bCurY = this.y - this.height/2; let botHitWall = false;
 
                         for (let i = 0; i < bSteps; i++) {
-                            bCurX += bStepX;
-                            bCurY += bStepY;
+                            bCurX += bStepX; bCurY += bStepY;
                             for (let obj of mapObjects) {
-                                if (obj.type === "box" && bCurX > obj.x && bCurX < obj.x + obj.w && bCurY > obj.y && bCurY < obj.y + obj.h) {
-                                    botHitWall = true; break;
-                                }
+                                if (obj.type === "box" && bCurX > obj.x && bCurX < obj.x + obj.w && bCurY > obj.y && bCurY < obj.y + obj.h) { botHitWall = true; break; }
                             }
                             if (botHitWall) break;
                         }
 
-                        // Only shoot if the laser didn't hit a wall
                         if (!botHitWall) {
-                            enemyBullets.push({
-                                x1: this.x, y1: this.y - this.height/2,
-                                x2: targetX, y2: targetY, timer: 15
-                            });
-
-                            if (targetX > player.x - player.width/2 && targetX < player.x + player.width/2 &&
-                                targetY > player.y - player.height && targetY < player.y) {
-                                killPlayer();
-                            }
+                            enemyBullets.push({ x1: this.x, y1: this.y - this.height/2, x2: targetX, y2: targetY, timer: 15 });
+                            if (targetX > player.x - player.width/2 && targetX < player.x + player.width/2 && targetY > player.y - player.height && targetY < player.y) { killPlayer(); }
                         }
                     }
                     this.shootCooldown = Math.random() * 60 + 60; 
                 }
             }
             draw() {
-                ctx.fillStyle = this.color;
-                ctx.fillRect(this.x - this.width/2, this.y - this.height, this.width, this.height);
-                ctx.fillStyle = "#fff";
-                ctx.fillRect(this.x + (this.vx > 0 ? 5 : -15), this.y - this.height + 10, 10, 10);
+                ctx.fillStyle = this.color; ctx.fillRect(this.x - this.width/2, this.y - this.height, this.width, this.height);
+                ctx.fillStyle = "#fff"; ctx.fillRect(this.x + (this.vx > 0 ? 5 : -15), this.y - this.height + 10, 10, 10);
             }
         }
         
@@ -356,7 +348,38 @@
         const GRAVITY = 0.7; const FRICTION = 0.85; const MOVE_ACCEL = 1.2; 
         const MAX_SPEED = 6; const JUMP_FORCE = -14.5; const SLIDE_SPEED = 12;
 
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = seconds % 60;
+            return `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+
+        function endGame() {
+            matchOver = true;
+            document.getElementById("finalKills").innerText = player.kills;
+            document.getElementById("finalDeaths").innerText = player.deaths;
+            document.getElementById("match-over-screen").style.display = "flex";
+        }
+
         function update() {
+            if (isPaused || matchOver) return;
+
+            // Timer Logic (60 frames roughly equals 1 second)
+            frameCount++;
+            if (frameCount >= 60) {
+                frameCount = 0;
+                timeLeft--;
+                document.getElementById("timeDisplay").innerText = formatTime(timeLeft);
+                
+                // Change color when time is low
+                if (timeLeft <= 30) document.getElementById("timeDisplay").style.color = "#f00";
+                
+                if (timeLeft <= 0) {
+                    endGame();
+                    return;
+                }
+            }
+
             if (keys.e) { player.state = "crouching"; player.height = 35; } 
             else if (keys.q && player.isGrounded) { player.state = "sliding"; player.height = 35; } 
             else { player.state = "normal"; player.height = 70; }
@@ -393,29 +416,22 @@
                 if (player.state === "sliding") player.vx *= 1.4; 
             }
 
-            player.y += player.vy;
-            player.vy += GRAVITY;
+            player.y += player.vy; player.vy += GRAVITY;
             
             if (player.isGrounded) player.vx *= (player.state === "sliding") ? 0.96 : FRICTION; 
             else player.vx *= 0.98;
 
             player.isGrounded = false;
             for (let obj of mapObjects) {
-                if (player.vy > 0 && player.y - player.vy <= obj.y && player.y >= obj.y && 
-                    player.x > obj.x - player.width/2 && player.x < obj.x + obj.w + player.width/2) {
+                if (player.vy > 0 && player.y - player.vy <= obj.y && player.y >= obj.y && player.x > obj.x - player.width/2 && player.x < obj.x + obj.w + player.width/2) {
                     player.y = obj.y; player.vy = 0; player.isGrounded = true;
                 }
-                else if (obj.type === "box" && player.vy < 0 &&
-                         player.y - player.height >= obj.y + obj.h + player.vy &&
-                         player.y - player.height <= obj.y + obj.h &&
-                         player.x > obj.x - player.width/2 && player.x < obj.x + obj.w + player.width/2) {
+                else if (obj.type === "box" && player.vy < 0 && player.y - player.height >= obj.y + obj.h + player.vy && player.y - player.height <= obj.y + obj.h && player.x > obj.x - player.width/2 && player.x < obj.x + obj.w + player.width/2) {
                     player.y = obj.y + obj.h + player.height; player.vy = 0;
                 }
             }
 
-            if (player.y >= canvas.height - 50) {
-                player.y = canvas.height - 50; player.vy = 0; player.isGrounded = true;
-            }
+            if (player.y >= canvas.height - 50) { player.y = canvas.height - 50; player.vy = 0; player.isGrounded = true; }
 
             enemies.forEach(enemy => enemy.update());
         }
@@ -466,9 +482,7 @@
             update(); draw(); requestAnimationFrame(gameLoop);
         }
 
-        window.addEventListener('resize', () => {
-            canvas.width = window.innerWidth; canvas.height = window.innerHeight; generateMap(); 
-        });
+        window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; generateMap(); });
     </script>
 </body>
 </html>
