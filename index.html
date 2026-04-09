@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>One-Tap 2D - AI Combat Update</title>
+    <title>One-Tap 2D - Line of Sight Update</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         
@@ -41,7 +41,7 @@
     <div id="lobby">
         <div class="lobby-box">
             <h1 style="color: #00ffcc; margin-bottom: 5px; font-size: 36px; text-shadow: 0 0 10px #00ffcc;">ONE-TAP</h1>
-            <p style="margin-top: 0; color: #aaa; font-style: italic;">AI Combat Update</p>
+            <p style="margin-top: 0; color: #aaa; font-style: italic;">Line of Sight Update</p>
             
             <input type="text" id="playerName" placeholder="Enter Your Gamertag" value="">
             <div class="lobby-divider">--- JOIN EXISTING MATCH ---</div>
@@ -90,7 +90,7 @@
 
     <script>
         /* =========================================================
-           LOBBY LOGIC (Collapsed for brevity, same functionality)
+           LOBBY LOGIC
            ========================================================= */
         let isPlaying = false; let pName = ""; let roomCode = "";
         function generateRoomCode() { const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'; let r = ''; for(let i=0;i<6;i++) r+=c.charAt(Math.floor(Math.random()*c.length)); return r; }
@@ -101,7 +101,7 @@
         function launchGameEngine() { document.getElementById("game-container").style.display = "block"; document.getElementById("boardName").innerText = pName; document.getElementById("roomDisplay").innerText = roomCode; isPlaying = true; generateMap(); gameLoop(); }
 
         /* =========================================================
-           CORE GAME ENGINE, MAP GEN, AND AI COMBAT
+           CORE GAME ENGINE & REAL RAY-MARCHING PHYSICS
            ========================================================= */
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
@@ -141,20 +141,67 @@
         let playerBullets = [];
         let enemyBullets = [];
 
+        // NEW SHOOTING SYSTEM - Line of Sight Ray-Marching
         canvas.addEventListener('mousedown', (e) => {
             if (!isPlaying) return;
-            const mouseX = e.clientX; const mouseY = e.clientY;
             
             if (player.weapon === "Sniper") {
-                playerBullets.push({x1: player.x, y1: player.y - player.height/2, x2: mouseX, y2: mouseY, timer: 10});
-                enemies.forEach(enemy => {
-                    if (mouseX > enemy.x - enemy.width/2 && mouseX < enemy.x + enemy.width/2 &&
-                        mouseY > enemy.y - enemy.height && mouseY < enemy.y) {
-                        enemy.die();
-                        player.kills++;
-                        updateHUD();
+                let startX = player.x;
+                let startY = player.y - player.height / 2;
+                
+                // Calculate distance and steps to mouse
+                let dx = e.clientX - startX;
+                let dy = e.clientY - startY;
+                let distance = Math.hypot(dx, dy);
+                
+                // Step bullet forward 5 pixels at a time
+                let steps = distance / 5; 
+                let stepX = dx / steps;
+                let stepY = dy / steps;
+
+                let currentX = startX;
+                let currentY = startY;
+                let hitTarget = null;
+                let hitWall = false;
+
+                // Travel along the line until we hit something or reach the mouse
+                for (let i = 0; i < steps; i++) {
+                    currentX += stepX;
+                    currentY += stepY;
+
+                    // 1. Check if bullet hit a Wall (Box)
+                    for (let obj of mapObjects) {
+                        if (obj.type === "box") {
+                            if (currentX > obj.x && currentX < obj.x + obj.w &&
+                                currentY > obj.y && currentY < obj.y + obj.h) {
+                                hitWall = true;
+                                break;
+                            }
+                        }
                     }
-                });
+                    if (hitWall) break; // Stop bullet at wall
+
+                    // 2. Check if bullet hit an Enemy
+                    for (let enemy of enemies) {
+                        if (currentX > enemy.x - enemy.width/2 && currentX < enemy.x + enemy.width/2 &&
+                            currentY > enemy.y - enemy.height && currentY < enemy.y) {
+                            hitTarget = enemy;
+                            break;
+                        }
+                    }
+                    if (hitTarget) break; // Stop bullet at enemy
+                }
+
+                // Draw the bullet trail stopping exactly where it hit
+                playerBullets.push({x1: startX, y1: startY, x2: currentX, y2: currentY, timer: 10});
+
+                // Apply Damage if an enemy was hit
+                if (hitTarget) {
+                    hitTarget.die();
+                    player.kills++;
+                    updateHUD();
+                }
+
             } else if (player.weapon === "Knife") {
                 enemies.forEach(enemy => {
                     let dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
@@ -173,28 +220,22 @@
         function killPlayer() {
             player.deaths++;
             updateHUD();
-            // Damage Flash Effect
             const overlay = document.getElementById("damage-overlay");
             overlay.style.display = "block";
             setTimeout(() => { overlay.style.display = "none"; }, 150);
             
-            // Random Respawn
             player.x = Math.random() * (canvas.width - 100) + 50;
-            player.y = 100; // Drop from sky
+            player.y = 100;
             player.vx = 0; player.vy = 0;
         }
 
         let mapObjects = [];
         
         function generateMap() {
-            // "type: plat" means you can walk through the sides and hit your head, but stand on top.
-            // "type: box" means it's a solid block (stops X movement).
             mapObjects = [
-                // Platforms
                 { x: canvas.width * 0.1, y: canvas.height - 180, w: 200, h: 15, type: "plat" },
                 { x: canvas.width * 0.7, y: canvas.height - 250, w: 200, h: 15, type: "plat" },
                 { x: canvas.width * 0.4, y: canvas.height - 350, w: 250, h: 15, type: "plat" },
-                // Crates / Boxes
                 { x: canvas.width * 0.3, y: canvas.height - 130, w: 80, h: 80, type: "box" },
                 { x: canvas.width * 0.55, y: canvas.height - 100, w: 100, h: 50, type: "box" },
                 { x: canvas.width * 0.85, y: canvas.height - 170, w: 60, h: 120, type: "box" }
@@ -206,91 +247,99 @@
             respawn() {
                 this.width = 30; this.height = 70;
                 this.x = Math.random() * (canvas.width - 100) + 50;
-                this.y = 100; // Drop in
+                this.y = 100; 
                 this.vx = (Math.random() > 0.5 ? 3 : -3);
                 this.vy = 0;
                 this.color = "#ff2a4b";
                 this.isGrounded = false;
-                this.shootCooldown = Math.random() * 60 + 40; // Frames before shooting
+                this.shootCooldown = Math.random() * 60 + 40; 
             }
             die() { this.respawn(); }
             
             update() {
-                // Gravity
                 this.vy += GRAVITY;
 
                 // X Movement & Box Collision
                 this.x += this.vx;
-                if (this.x < this.width/2 || this.x > canvas.width - this.width/2) this.vx *= -1; // Screen edge bounce
+                if (this.x < this.width/2 || this.x > canvas.width - this.width/2) this.vx *= -1; 
 
                 for (let obj of mapObjects) {
                     if (obj.type === "box") {
                         if (this.x + this.width/2 > obj.x && this.x - this.width/2 < obj.x + obj.w &&
                             this.y > obj.y && this.y - this.height < obj.y + obj.h) {
-                            this.vx *= -1; // Reverse direction if bot hits a box
+                            this.vx *= -1; 
                             break;
                         }
                     }
                 }
 
-                // Y Movement & Platform/Floor Collision
+                // Y Movement
                 this.y += this.vy;
                 this.isGrounded = false;
 
                 for (let obj of mapObjects) {
                     if (this.vy > 0 && this.y - this.vy <= obj.y && this.y >= obj.y && 
                         this.x > obj.x - this.width/2 && this.x < obj.x + obj.w + this.width/2) {
-                        this.y = obj.y;
-                        this.vy = 0;
-                        this.isGrounded = true;
+                        this.y = obj.y; this.vy = 0; this.isGrounded = true;
                     }
                 }
 
                 if (this.y >= canvas.height - 50) {
-                    this.y = canvas.height - 50;
-                    this.vy = 0;
-                    this.isGrounded = true;
+                    this.y = canvas.height - 50; this.vy = 0; this.isGrounded = true;
                 }
 
-                // Random Bot Jumping
-                if (this.isGrounded && Math.random() < 0.02) {
-                    this.vy = JUMP_FORCE * 0.9;
-                }
+                if (this.isGrounded && Math.random() < 0.02) this.vy = JUMP_FORCE * 0.9;
 
-                // AI Combat Logic: Aim and Shoot at Player
+                // BOT AI SHOOTING - Now with Line of Sight checks
                 this.shootCooldown--;
                 if (this.shootCooldown <= 0) {
                     let dx = player.x - this.x;
                     let dy = (player.y - player.height/2) - (this.y - this.height/2);
                     let dist = Math.hypot(dx, dy);
 
-                    if (dist < 700) { // Aggro distance
-                        // Calculate inaccuracy so they aren't perfect aimbots
-                        let aimInaccuracyX = (Math.random() - 0.5) * 120;
-                        let aimInaccuracyY = (Math.random() - 0.5) * 120;
-                        let targetX = player.x + aimInaccuracyX;
-                        let targetY = (player.y - player.height/2) + aimInaccuracyY;
+                    if (dist < 800) { 
+                        let targetX = player.x + (Math.random() - 0.5) * 80;
+                        let targetY = (player.y - player.height/2) + (Math.random() - 0.5) * 80;
 
-                        // Draw Red Laser
-                        enemyBullets.push({
-                            x1: this.x, y1: this.y - this.height/2,
-                            x2: targetX, y2: targetY,
-                            timer: 15
-                        });
+                        // Ray-march to check if the bot can actually see the player
+                        let bDist = Math.hypot(targetX - this.x, targetY - (this.y - this.height/2));
+                        let bSteps = bDist / 5;
+                        let bStepX = (targetX - this.x) / bSteps;
+                        let bStepY = (targetY - (this.y - this.height/2)) / bSteps;
+                        let bCurX = this.x;
+                        let bCurY = this.y - this.height/2;
+                        let botHitWall = false;
 
-                        // Check if bot bullet hit the player's hitbox
-                        if (targetX > player.x - player.width/2 && targetX < player.x + player.width/2 &&
-                            targetY > player.y - player.height && targetY < player.y) {
-                            killPlayer();
+                        for (let i = 0; i < bSteps; i++) {
+                            bCurX += bStepX;
+                            bCurY += bStepY;
+                            for (let obj of mapObjects) {
+                                if (obj.type === "box" && bCurX > obj.x && bCurX < obj.x + obj.w && bCurY > obj.y && bCurY < obj.y + obj.h) {
+                                    botHitWall = true; break;
+                                }
+                            }
+                            if (botHitWall) break;
+                        }
+
+                        // Only shoot if the laser didn't hit a wall
+                        if (!botHitWall) {
+                            enemyBullets.push({
+                                x1: this.x, y1: this.y - this.height/2,
+                                x2: targetX, y2: targetY, timer: 15
+                            });
+
+                            if (targetX > player.x - player.width/2 && targetX < player.x + player.width/2 &&
+                                targetY > player.y - player.height && targetY < player.y) {
+                                killPlayer();
+                            }
                         }
                     }
-                    this.shootCooldown = Math.random() * 60 + 60; // Reset timer (approx 1-2 seconds)
+                    this.shootCooldown = Math.random() * 60 + 60; 
                 }
             }
             draw() {
                 ctx.fillStyle = this.color;
                 ctx.fillRect(this.x - this.width/2, this.y - this.height, this.width, this.height);
-                // Bot eye indicator (shows direction)
                 ctx.fillStyle = "#fff";
                 ctx.fillRect(this.x + (this.vx > 0 ? 5 : -15), this.y - this.height + 10, 10, 10);
             }
@@ -304,21 +353,14 @@
             document.getElementById("deathCount").innerText = player.deaths;
         }
 
-        // PHYSICS CONSTANTS
-        const GRAVITY = 0.7;
-        const FRICTION = 0.85;
-        const MOVE_ACCEL = 1.2; 
-        const MAX_SPEED = 6;    
-        const JUMP_FORCE = -14.5; // BUFFED JUMP HEIGHT
-        const SLIDE_SPEED = 12;
+        const GRAVITY = 0.7; const FRICTION = 0.85; const MOVE_ACCEL = 1.2; 
+        const MAX_SPEED = 6; const JUMP_FORCE = -14.5; const SLIDE_SPEED = 12;
 
         function update() {
-            // Stance State
             if (keys.e) { player.state = "crouching"; player.height = 35; } 
             else if (keys.q && player.isGrounded) { player.state = "sliding"; player.height = 35; } 
             else { player.state = "normal"; player.height = 70; }
 
-            // Movement X
             if (player.state === "normal") {
                 if (keys.a) player.vx -= MOVE_ACCEL;
                 if (keys.d) player.vx += MOVE_ACCEL;
@@ -330,16 +372,12 @@
                 if (player.vx < 0) player.vx = -SLIDE_SPEED;
             }
 
-            // Apply X Velocity
             player.x += player.vx;
 
-            // X Collision against solid BOXES
             for (let obj of mapObjects) {
                 if (obj.type === "box") {
                     if (player.x + player.width/2 > obj.x && player.x - player.width/2 < obj.x + obj.w &&
                         player.y > obj.y && player.y - player.height < obj.y + obj.h) {
-                        
-                        // Push player out of the box
                         if (player.vx > 0) player.x = obj.x - player.width/2;
                         else if (player.vx < 0) player.x = obj.x + obj.w + player.width/2;
                         player.vx = 0;
@@ -347,95 +385,62 @@
                 }
             }
 
-            // Screen Bounds X
             if (player.x < player.width / 2) { player.x = player.width / 2; player.vx = 0; }
             if (player.x > canvas.width - player.width / 2) { player.x = canvas.width - player.width / 2; player.vx = 0; }
 
-            // Jump Action
             if (keys.space && player.isGrounded) {
-                player.vy = JUMP_FORCE;
-                player.isGrounded = false;
+                player.vy = JUMP_FORCE; player.isGrounded = false;
                 if (player.state === "sliding") player.vx *= 1.4; 
             }
 
-            // Apply Y Velocity
             player.y += player.vy;
             player.vy += GRAVITY;
             
-            // Apply Friction
             if (player.isGrounded) player.vx *= (player.state === "sliding") ? 0.96 : FRICTION; 
             else player.vx *= 0.98;
 
-            // Y Collision (Floors, Platforms, Tops of Boxes)
             player.isGrounded = false;
             for (let obj of mapObjects) {
-                // Landing on top of anything
                 if (player.vy > 0 && player.y - player.vy <= obj.y && player.y >= obj.y && 
                     player.x > obj.x - player.width/2 && player.x < obj.x + obj.w + player.width/2) {
-                    player.y = obj.y;
-                    player.vy = 0;
-                    player.isGrounded = true;
+                    player.y = obj.y; player.vy = 0; player.isGrounded = true;
                 }
-                // Hitting head on bottom of a solid BOX
                 else if (obj.type === "box" && player.vy < 0 &&
                          player.y - player.height >= obj.y + obj.h + player.vy &&
                          player.y - player.height <= obj.y + obj.h &&
                          player.x > obj.x - player.width/2 && player.x < obj.x + obj.w + player.width/2) {
-                    player.y = obj.y + obj.h + player.height;
-                    player.vy = 0;
+                    player.y = obj.y + obj.h + player.height; player.vy = 0;
                 }
             }
 
-            // Main Floor
             if (player.y >= canvas.height - 50) {
-                player.y = canvas.height - 50;
-                player.vy = 0;
-                player.isGrounded = true;
+                player.y = canvas.height - 50; player.vy = 0; player.isGrounded = true;
             }
 
-            // Update Bots
             enemies.forEach(enemy => enemy.update());
         }
 
         function draw() {
-            ctx.fillStyle = "#1a1a2e";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Draw Map Objects
             mapObjects.forEach(obj => {
                 if (obj.type === "plat") {
-                    ctx.fillStyle = "#3a4a6e";
-                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
-                    ctx.fillStyle = "#00ffcc"; // Neon trim
-                    ctx.fillRect(obj.x, obj.y, obj.w, 2);
+                    ctx.fillStyle = "#3a4a6e"; ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                    ctx.fillStyle = "#00ffcc"; ctx.fillRect(obj.x, obj.y, obj.w, 2);
                 } else if (obj.type === "box") {
-                    ctx.fillStyle = "#222"; // Dark crate
-                    ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
-                    ctx.strokeStyle = "#e94560"; // Red hazard trim
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(obj.x, obj.y, obj.w, obj.h);
-                    
-                    // Crate X design
-                    ctx.beginPath();
-                    ctx.moveTo(obj.x, obj.y);
-                    ctx.lineTo(obj.x + obj.w, obj.y + obj.h);
-                    ctx.moveTo(obj.x + obj.w, obj.y);
-                    ctx.lineTo(obj.x, obj.y + obj.h);
-                    ctx.strokeStyle = "#333";
-                    ctx.stroke();
+                    ctx.fillStyle = "#222"; ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                    ctx.strokeStyle = "#e94560"; ctx.lineWidth = 2; ctx.strokeRect(obj.x, obj.y, obj.w, obj.h);
+                    ctx.beginPath(); ctx.moveTo(obj.x, obj.y); ctx.lineTo(obj.x + obj.w, obj.y + obj.h);
+                    ctx.moveTo(obj.x + obj.w, obj.y); ctx.lineTo(obj.x, obj.y + obj.h);
+                    ctx.strokeStyle = "#333"; ctx.stroke();
                 }
             });
 
-            // Draw Floor
-            ctx.fillStyle = "#16213e";
-            ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+            ctx.fillStyle = "#16213e"; ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
 
-            // Draw Entities
             enemies.forEach(enemy => enemy.draw());
-            ctx.fillStyle = "#00ffcc";
-            ctx.fillRect(player.x - player.width/2, player.y - player.height, player.width, player.height);
+            ctx.fillStyle = "#00ffcc"; ctx.fillRect(player.x - player.width/2, player.y - player.height, player.width, player.height);
 
-            // Draw Player Bullets (White/Blue)
             for (let i = playerBullets.length - 1; i >= 0; i--) {
                 let b = playerBullets[i];
                 ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2);
@@ -443,7 +448,6 @@
                 b.timer--; if (b.timer <= 0) playerBullets.splice(i, 1);
             }
 
-            // Draw Enemy Bullets (Red)
             for (let i = enemyBullets.length - 1; i >= 0; i--) {
                 let b = enemyBullets[i];
                 ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2);
@@ -451,26 +455,19 @@
                 b.timer--; if (b.timer <= 0) enemyBullets.splice(i, 1);
             }
             
-            // Knife Indicator
             if (player.weapon === "Knife") {
-                ctx.beginPath();
-                ctx.arc(player.x, player.y - player.height/2, 100, 0, Math.PI * 2);
-                ctx.strokeStyle = "rgba(0, 255, 204, 0.2)";
-                ctx.stroke();
+                ctx.beginPath(); ctx.arc(player.x, player.y - player.height/2, 100, 0, Math.PI * 2);
+                ctx.strokeStyle = "rgba(0, 255, 204, 0.2)"; ctx.stroke();
             }
         }
 
         function gameLoop() {
             if (!isPlaying) return;
-            update();
-            draw();
-            requestAnimationFrame(gameLoop);
+            update(); draw(); requestAnimationFrame(gameLoop);
         }
 
         window.addEventListener('resize', () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            generateMap(); 
+            canvas.width = window.innerWidth; canvas.height = window.innerHeight; generateMap(); 
         });
     </script>
 </body>
